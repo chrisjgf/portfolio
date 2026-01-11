@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import type { HoldingWithValue, AssetCategory, Currency } from '@/types'
 import { CATEGORY_CONFIG, CATEGORIES, formatCurrency } from '@/types'
 
@@ -14,22 +15,15 @@ interface PieChartProps {
   data: { category: AssetCategory; value: number; percentage: number }[]
 }
 
-function PieChart({ data }: PieChartProps) {
+function PieChart({ data }: PieChartProps): React.ReactElement | null {
   if (data.length === 0) return null
 
-  // Calculate cumulative percentages for pie slices
   let cumulative = 0
-  const slices = data.map(d => {
-    const start = cumulative
-    cumulative += d.percentage
-    return { ...d, start, end: cumulative }
-  })
-
-  // Create conic gradient
-  const gradientStops = slices
-    .map(s => {
-      const config = CATEGORY_CONFIG[s.category]
-      return `${config.hexColor} ${s.start}% ${s.end}%`
+  const gradientStops = data
+    .map(d => {
+      const start = cumulative
+      cumulative += d.percentage
+      return `${CATEGORY_CONFIG[d.category].hexColor} ${start}% ${cumulative}%`
     })
     .join(', ')
 
@@ -41,23 +35,32 @@ function PieChart({ data }: PieChartProps) {
   )
 }
 
-export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, isLoading, onRefresh }: DashboardProps) {
+export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, isLoading, onRefresh }: DashboardProps): React.ReactElement {
+  const [hoveredCategory, setHoveredCategory] = useState<AssetCategory | null>(null)
   const totalValue = holdings.reduce((sum, h) => sum + h.totalValue, 0)
 
-  const categoryTotals = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = holdings
-      .filter(h => h.category === cat)
-      .reduce((sum, h) => sum + h.totalValue, 0)
-    return acc
-  }, {} as Record<AssetCategory, number>)
+  const categoryData = useMemo(() => {
+    const holdingsByCategory = new Map<AssetCategory, HoldingWithValue[]>()
 
-  const pieData = CATEGORIES
-    .filter(cat => categoryTotals[cat] > 0)
-    .map(cat => ({
-      category: cat,
-      value: categoryTotals[cat],
-      percentage: totalValue > 0 ? (categoryTotals[cat] / totalValue) * 100 : 0,
-    }))
+    for (const holding of holdings) {
+      const list = holdingsByCategory.get(holding.category) ?? []
+      list.push(holding)
+      holdingsByCategory.set(holding.category, list)
+    }
+
+    return CATEGORIES.map(category => {
+      const categoryHoldings = holdingsByCategory.get(category) ?? []
+      const value = categoryHoldings.reduce((sum, h) => sum + h.totalValue, 0)
+      return {
+        category,
+        value,
+        percentage: totalValue > 0 ? (value / totalValue) * 100 : 0,
+        holdings: categoryHoldings.sort((a, b) => b.totalValue - a.totalValue),
+      }
+    }).filter(d => d.value > 0)
+  }, [holdings, totalValue])
+
+  const pieData = categoryData.map(({ category, value, percentage }) => ({ category, value, percentage }))
 
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -100,12 +103,9 @@ export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, i
       <div className="flex items-center gap-6">
         <PieChart data={pieData} />
         <div className="flex-1 space-y-3">
-          {CATEGORIES.map(category => {
-            const value = categoryTotals[category]
-            const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
+          {categoryData.map(({ category, value, percentage, holdings: categoryHoldings }) => {
             const config = CATEGORY_CONFIG[category]
-
-            if (value === 0) return null
+            const isHovered = hoveredCategory === category
 
             return (
               <div key={category}>
@@ -115,11 +115,27 @@ export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, i
                     {formatCurrency(value, currency)} ({percentage.toFixed(1)}%)
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="w-full bg-gray-200 rounded-full h-2 relative cursor-pointer"
+                  onMouseEnter={() => setHoveredCategory(category)}
+                  onMouseLeave={() => setHoveredCategory(null)}
+                >
                   <div
                     className={`${config.color} h-2 rounded-full transition-all`}
                     style={{ width: `${percentage}%` }}
                   />
+                  {isHovered && (
+                    <div className="absolute inset-0 h-2 flex rounded-full overflow-hidden">
+                      {categoryHoldings.map((holding, idx) => (
+                        <div
+                          key={holding.id}
+                          className={`${config.color} h-full`}
+                          style={{ width: `${(holding.totalValue / value) * 100}%`, opacity: 1 - idx * 0.2 }}
+                          title={`${holding.name}: ${formatCurrency(holding.totalValue, currency)}`}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )

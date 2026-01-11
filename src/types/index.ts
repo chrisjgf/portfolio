@@ -41,6 +41,7 @@ export interface PortfolioData {
   holdings: Holding[]
   history: HistorySnapshot[]
   priceCache: PriceCache
+  plannedHoldings?: Holding[]
   exportedAt?: string
 }
 

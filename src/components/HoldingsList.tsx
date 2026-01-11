@@ -8,7 +8,6 @@ interface HoldingsListProps {
   onEdit: (holding: HoldingWithValue) => void
   onDelete: (id: string) => void
   isPlanMode?: boolean
-  onQuantityChange?: (id: string, newQuantity: number) => void
 }
 
 function getDelta(holding: HoldingWithValue, originalHoldings?: HoldingWithValue[]): number | null {
@@ -34,7 +33,7 @@ function TrashIcon() {
   )
 }
 
-export function HoldingsList({ holdings, originalHoldings, currency, onEdit, onDelete, isPlanMode, onQuantityChange }: HoldingsListProps) {
+export function HoldingsList({ holdings, originalHoldings, currency, onEdit, onDelete, isPlanMode }: HoldingsListProps) {
   if (holdings.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
@@ -63,21 +62,17 @@ export function HoldingsList({ holdings, originalHoldings, currency, onEdit, onD
         <tbody className="bg-white divide-y divide-gray-200">
           {sortedHoldings.map(holding => {
             const config = CATEGORY_CONFIG[holding.category] ?? { label: holding.category, color: 'bg-gray-400' }
+            const delta = getDelta(holding, originalHoldings)
+            const hasChange = delta !== null && delta !== 0
+            const rowBg = hasChange
+              ? delta > 0 ? 'bg-green-50' : 'bg-red-50'
+              : ''
             return (
-              <tr key={holding.id} className="hover:bg-gray-50">
+              <tr key={holding.id} className={`hover:bg-gray-50 ${rowBg}`}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="font-medium text-gray-900">{holding.name}</div>
                   {holding.identifier && (
                     <div className="text-sm text-gray-500">{holding.identifier}</div>
-                  )}
-                  {isPlanMode && (
-                    <input
-                      type="number"
-                      step="any"
-                      value={holding.quantity}
-                      onChange={(e) => onQuantityChange?.(holding.id, parseFloat(e.target.value) || 0)}
-                      className="mt-1 w-24 px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -96,16 +91,13 @@ export function HoldingsList({ holdings, originalHoldings, currency, onEdit, onD
                 </td>
                 {isPlanMode && (
                   <td className="px-6 py-4 whitespace-nowrap text-right font-medium">
-                    {(() => {
-                      const delta = getDelta(holding, originalHoldings)
-                      if (delta === null || delta === 0) return <span className="text-gray-400">-</span>
-                      const isPositive = delta > 0
-                      return (
-                        <span className={isPositive ? 'text-green-600' : 'text-red-600'}>
-                          {isPositive ? '+' : ''}{formatCurrency(delta, currency)}
-                        </span>
-                      )
-                    })()}
+                    {!hasChange ? (
+                      <span className="text-gray-400">-</span>
+                    ) : (
+                      <span className={delta! > 0 ? 'text-green-600' : 'text-red-600'}>
+                        {delta! > 0 ? '+' : ''}{formatCurrency(delta!, currency)}
+                      </span>
+                    )}
                   </td>
                 )}
                 <td className="px-6 py-4 whitespace-nowrap text-right">

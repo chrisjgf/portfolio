@@ -57,6 +57,10 @@ function App() {
             setAllHoldings(data.holdings || [])
             setAllPrices(data.priceCache || {})
             setAllHistory(data.history || [])
+            if (data.plannedHoldings && data.plannedHoldings.length > 0) {
+              setPlannedHoldings(data.plannedHoldings)
+              setIsPlanMode(true)
+            }
             setInitialized(true)
           }
         } catch (error) {
@@ -91,6 +95,10 @@ function App() {
         setAllHoldings(result.data.holdings)
         setAllPrices(result.data.priceCache)
         setAllHistory(result.data.history)
+        if (result.data.plannedHoldings && result.data.plannedHoldings.length > 0) {
+          setPlannedHoldings(result.data.plannedHoldings)
+          setIsPlanMode(true)
+        }
         setDbStatus({ exists: true, unlocked: true })
         setInitialized(true)
       } else {
@@ -222,27 +230,55 @@ function App() {
   const handleExport = useCallback(() => setToast('Portfolio exported'), [])
 
   const handleEnterPlanMode = useCallback(() => {
-    setPlannedHoldings([...holdings])
+    if (plannedHoldings.length === 0) {
+      setPlannedHoldings([...holdings])
+    }
     setIsPlanMode(true)
-  }, [holdings])
+  }, [holdings, plannedHoldings.length])
 
-  const handleAcceptPlan = useCallback(() => {
+  const handleSavePlan = useCallback(async () => {
+    const data: PortfolioData = {
+      holdings,
+      priceCache,
+      history,
+      plannedHoldings,
+    }
+    await saveToApi(data)
+    saveToLocalStorage(data)
+    setToast('Plan saved')
+  }, [holdings, priceCache, history, plannedHoldings])
+
+  const handleAcceptPlan = useCallback(async () => {
     setAllHoldings(plannedHoldings)
     setIsPlanMode(false)
     setPlannedHoldings([])
-    setToast('Changes applied')
-  }, [plannedHoldings, setAllHoldings])
+    const data: PortfolioData = {
+      holdings: plannedHoldings,
+      priceCache,
+      history,
+    }
+    await saveToApi(data)
+    saveToLocalStorage(data)
+    setToast('Plan approved')
+  }, [plannedHoldings, setAllHoldings, priceCache, history])
 
-  const handleCancelPlan = useCallback(() => {
+  const handleExitPlanView = useCallback(() => {
+    setIsPlanMode(false)
+  }, [])
+
+  const handleDiscardPlan = useCallback(async () => {
+    if (!confirm('Discard this plan? This cannot be undone.')) return
     setIsPlanMode(false)
     setPlannedHoldings([])
-  }, [])
-
-  const handlePlanQuantityChange = useCallback((id: string, newQuantity: number) => {
-    setPlannedHoldings(prev =>
-      prev.map(h => h.id === id ? { ...h, quantity: newQuantity } : h)
-    )
-  }, [])
+    const data: PortfolioData = {
+      holdings,
+      priceCache,
+      history,
+    }
+    await saveToApi(data)
+    saveToLocalStorage(data)
+    setToast('Plan discarded')
+  }, [holdings, priceCache, history])
 
   const handlePlanDeleteHolding = useCallback((id: string) => {
     if (confirm('Remove this holding from the plan?')) {
@@ -306,9 +342,30 @@ function App() {
 
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-gray-900">Holdings</h2>
+            <div className="flex border-b border-gray-200">
+              <button
+                onClick={() => isPlanMode && handleExitPlanView()}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  !isPlanMode
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Holdings
+              </button>
+              <button
+                onClick={() => !isPlanMode && handleEnterPlanMode()}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  isPlanMode
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Plan
+              </button>
+            </div>
             {categoriesWithHoldings.length > 1 && (
-              <div className="flex gap-1">
+              <div className="flex gap-1 ml-2">
                 {categoriesWithHoldings.map(cat => {
                   const config = CATEGORY_CONFIG[cat]
                   const isActive = activeFilters.has(cat)
@@ -330,28 +387,27 @@ function App() {
             )}
           </div>
           <div className="flex gap-2">
-            {isPlanMode ? (
+            {isPlanMode && (
               <>
                 <button
-                  onClick={handleCancelPlan}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  onClick={handleSavePlan}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
-                  Cancel
+                  Save
                 </button>
                 <button
                   onClick={handleAcceptPlan}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                 >
-                  Accept Changes
+                  Approve
+                </button>
+                <button
+                  onClick={handleDiscardPlan}
+                  className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50"
+                >
+                  Discard
                 </button>
               </>
-            ) : (
-              <button
-                onClick={handleEnterPlanMode}
-                className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50"
-              >
-                Plan
-              </button>
             )}
             <button
               onClick={handleAddHolding}
@@ -369,7 +425,6 @@ function App() {
           onEdit={handleEditHolding}
           onDelete={isPlanMode ? handlePlanDeleteHolding : handleDeleteHolding}
           isPlanMode={isPlanMode}
-          onQuantityChange={handlePlanQuantityChange}
         />
 
         {history.length > 0 && (
