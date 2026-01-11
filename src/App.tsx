@@ -34,6 +34,8 @@ function App() {
   const [usdToGbp, setUsdToGbp] = useState(0.79)
   const [activeFilters, setActiveFilters] = useState<Set<AssetCategory>>(new Set())
   const [toast, setToast] = useState<string | null>(null)
+  const [isPlanMode, setIsPlanMode] = useState(false)
+  const [plannedHoldings, setPlannedHoldings] = useState<Holding[]>([])
 
   const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null)
   const [unlockError, setUnlockError] = useState<string | null>(null)
@@ -98,7 +100,7 @@ function App() {
   }, [dbStatus, setAllHoldings, setAllPrices, setAllHistory])
 
   useEffect(() => {
-    if (!initialized) return
+    if (!initialized || isPlanMode) return
 
     const data: PortfolioData = {
       holdings,
@@ -107,7 +109,7 @@ function App() {
     }
     saveToApi(data)
     saveToLocalStorage(data)
-  }, [holdings, priceCache, history, initialized])
+  }, [holdings, priceCache, history, initialized, isPlanMode])
 
   useEffect(() => {
     if (!initialized || holdings.length === 0) return
@@ -135,6 +137,22 @@ function App() {
     if (activeFilters.size === 0) return holdingsWithValues
     return holdingsWithValues.filter(h => activeFilters.has(h.category))
   }, [holdingsWithValues, activeFilters])
+
+  const plannedHoldingsWithValues = useMemo(() => {
+    if (!isPlanMode) return []
+    const withValuesUsd = getHoldingsWithValues(plannedHoldings)
+    if (currency === 'USD') return withValuesUsd
+    return withValuesUsd.map(h => ({
+      ...h,
+      currentPrice: h.currentPrice * usdToGbp,
+      totalValue: h.totalValue * usdToGbp,
+    }))
+  }, [isPlanMode, plannedHoldings, getHoldingsWithValues, currency, usdToGbp])
+
+  const filteredPlannedHoldings = useMemo(() => {
+    if (activeFilters.size === 0) return plannedHoldingsWithValues
+    return plannedHoldingsWithValues.filter(h => activeFilters.has(h.category))
+  }, [plannedHoldingsWithValues, activeFilters])
 
   const toggleFilter = useCallback((category: AssetCategory) => {
     setActiveFilters(prev => {
@@ -165,14 +183,28 @@ function App() {
   }, [])
 
   const handleSaveHolding = useCallback((holdingData: Omit<Holding, 'id'>) => {
-    if (editingHolding) {
-      updateHolding(editingHolding.id, holdingData)
+    if (isPlanMode) {
+      if (editingHolding) {
+        setPlannedHoldings(prev =>
+          prev.map(h => h.id === editingHolding.id ? { ...h, ...holdingData } : h)
+        )
+      } else {
+        const newHolding: Holding = {
+          ...holdingData,
+          id: Math.random().toString(36).substring(2, 9),
+        }
+        setPlannedHoldings(prev => [...prev, newHolding])
+      }
     } else {
-      addHolding(holdingData)
+      if (editingHolding) {
+        updateHolding(editingHolding.id, holdingData)
+      } else {
+        addHolding(holdingData)
+      }
     }
     setIsFormOpen(false)
     setEditingHolding(null)
-  }, [editingHolding, addHolding, updateHolding])
+  }, [editingHolding, addHolding, updateHolding, isPlanMode])
 
   const handleDeleteHolding = useCallback((id: string) => {
     if (confirm('Are you sure you want to delete this holding?')) {
@@ -188,6 +220,35 @@ function App() {
   }, [setAllHoldings, setAllPrices, setAllHistory])
 
   const handleExport = useCallback(() => setToast('Portfolio exported'), [])
+
+  const handleEnterPlanMode = useCallback(() => {
+    setPlannedHoldings([...holdings])
+    setIsPlanMode(true)
+  }, [holdings])
+
+  const handleAcceptPlan = useCallback(() => {
+    setAllHoldings(plannedHoldings)
+    setIsPlanMode(false)
+    setPlannedHoldings([])
+    setToast('Changes applied')
+  }, [plannedHoldings, setAllHoldings])
+
+  const handleCancelPlan = useCallback(() => {
+    setIsPlanMode(false)
+    setPlannedHoldings([])
+  }, [])
+
+  const handlePlanQuantityChange = useCallback((id: string, newQuantity: number) => {
+    setPlannedHoldings(prev =>
+      prev.map(h => h.id === id ? { ...h, quantity: newQuantity } : h)
+    )
+  }, [])
+
+  const handlePlanDeleteHolding = useCallback((id: string) => {
+    if (confirm('Remove this holding from the plan?')) {
+      setPlannedHoldings(prev => prev.filter(h => h.id !== id))
+    }
+  }, [])
 
   const handleSaveSnapshot = useCallback(() => {
     addSnapshot(holdingsWithValuesUsd) // Always save in USD
@@ -268,19 +329,47 @@ function App() {
               </div>
             )}
           </div>
-          <button
-            onClick={handleAddHolding}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            + Add Holding
-          </button>
+          <div className="flex gap-2">
+            {isPlanMode ? (
+              <>
+                <button
+                  onClick={handleCancelPlan}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAcceptPlan}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Accept Changes
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleEnterPlanMode}
+                className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50"
+              >
+                Plan
+              </button>
+            )}
+            <button
+              onClick={handleAddHolding}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              + Add Holding
+            </button>
+          </div>
         </div>
 
         <HoldingsList
-          holdings={filteredHoldings}
+          holdings={isPlanMode ? filteredPlannedHoldings : filteredHoldings}
+          originalHoldings={isPlanMode ? filteredHoldings : undefined}
           currency={currency}
           onEdit={handleEditHolding}
-          onDelete={handleDeleteHolding}
+          onDelete={isPlanMode ? handlePlanDeleteHolding : handleDeleteHolding}
+          isPlanMode={isPlanMode}
+          onQuantityChange={handlePlanQuantityChange}
         />
 
         {history.length > 0 && (
