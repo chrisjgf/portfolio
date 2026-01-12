@@ -36,6 +36,7 @@ function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [isPlanMode, setIsPlanMode] = useState(false)
   const [plannedHoldings, setPlannedHoldings] = useState<Holding[]>([])
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
 
   const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null)
   const [unlockError, setUnlockError] = useState<string | null>(null)
@@ -291,6 +292,18 @@ function App() {
     setToast('Snapshot saved')
   }, [addSnapshot, holdingsWithValuesUsd])
 
+  const handleToggleVisibility = useCallback((id: string) => {
+    setHiddenIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
   const handleDeleteSnapshot = useCallback(async (index: number) => {
     deleteSnapshot(index)
     await deleteHistoryFromApi(index)
@@ -332,8 +345,11 @@ function App() {
         </header>
 
         <Dashboard
-          holdings={holdingsWithValues}
+          holdings={isPlanMode ? plannedHoldingsWithValues : holdingsWithValues}
+          hiddenIds={hiddenIds}
+          history={history}
           currency={currency}
+          usdToGbp={usdToGbp}
           onCurrencyChange={setCurrency}
           lastUpdated={lastUpdated}
           isLoading={isLoading}
@@ -425,6 +441,8 @@ function App() {
           onEdit={handleEditHolding}
           onDelete={isPlanMode ? handlePlanDeleteHolding : handleDeleteHolding}
           isPlanMode={isPlanMode}
+          hiddenIds={hiddenIds}
+          onToggleVisibility={handleToggleVisibility}
         />
 
         {history.length > 0 && (

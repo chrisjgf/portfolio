@@ -1,10 +1,13 @@
 import { useState, useMemo } from 'react'
-import type { HoldingWithValue, AssetCategory, Currency } from '@/types'
+import type { HoldingWithValue, AssetCategory, Currency, HistorySnapshot } from '@/types'
 import { CATEGORY_CONFIG, CATEGORIES, formatCurrency } from '@/types'
 
 interface DashboardProps {
   holdings: HoldingWithValue[]
+  hiddenIds: Set<string>
+  history: HistorySnapshot[]
   currency: Currency
+  usdToGbp: number
   onCurrencyChange: (currency: Currency) => void
   lastUpdated: string | null
   isLoading: boolean
@@ -35,14 +38,23 @@ function PieChart({ data }: PieChartProps): React.ReactElement | null {
   )
 }
 
-export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, isLoading, onRefresh }: DashboardProps): React.ReactElement {
+export function Dashboard({ holdings, hiddenIds, history, currency, usdToGbp, onCurrencyChange, lastUpdated, isLoading, onRefresh }: DashboardProps): React.ReactElement {
   const [hoveredCategory, setHoveredCategory] = useState<AssetCategory | null>(null)
-  const totalValue = holdings.reduce((sum, h) => sum + h.totalValue, 0)
+  const visibleHoldings = useMemo(() => holdings.filter(h => !hiddenIds.has(h.id)), [holdings, hiddenIds])
+  const totalValue = visibleHoldings.reduce((sum, h) => sum + h.totalValue, 0)
+
+  const percentChange = useMemo(() => {
+    if (history.length === 0) return null
+    const lastSnapshot = history[history.length - 1]
+    if (lastSnapshot.totalValue === 0) return null
+    const lastValue = currency === 'GBP' ? lastSnapshot.totalValue * usdToGbp : lastSnapshot.totalValue
+    return ((totalValue - lastValue) / lastValue) * 100
+  }, [history, totalValue, currency, usdToGbp])
 
   const categoryData = useMemo(() => {
     const holdingsByCategory = new Map<AssetCategory, HoldingWithValue[]>()
 
-    for (const holding of holdings) {
+    for (const holding of visibleHoldings) {
       const list = holdingsByCategory.get(holding.category) ?? []
       list.push(holding)
       holdingsByCategory.set(holding.category, list)
@@ -58,7 +70,7 @@ export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, i
         holdings: categoryHoldings.sort((a, b) => b.totalValue - a.totalValue),
       }
     }).filter(d => d.value > 0)
-  }, [holdings, totalValue])
+  }, [visibleHoldings, totalValue])
 
   const pieData = categoryData.map(({ category, value, percentage }) => ({ category, value, percentage }))
 
@@ -67,7 +79,14 @@ export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, i
       <div className="flex justify-between items-start mb-6">
         <div>
           <h2 className="text-sm font-medium text-gray-500">Total Portfolio Value</h2>
-          <p className="text-3xl font-bold text-gray-900">{formatCurrency(totalValue, currency)}</p>
+          <div className="flex items-baseline gap-3">
+            <p className="text-3xl font-bold text-gray-900">{formatCurrency(totalValue, currency)}</p>
+            {percentChange !== null && (
+              <span className={`text-lg font-semibold ${percentChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {percentChange >= 0 ? '+' : ''}{percentChange.toFixed(2)}%
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex rounded-lg overflow-hidden border border-gray-300">
@@ -112,7 +131,7 @@ export function Dashboard({ holdings, currency, onCurrencyChange, lastUpdated, i
                 <div className="flex justify-between text-sm mb-1">
                   <span className="font-medium text-gray-700">{config.label}</span>
                   <span className="text-gray-600">
-                    {formatCurrency(value, currency)} ({percentage.toFixed(1)}%)
+                    {percentage.toFixed(1)}%
                   </span>
                 </div>
                 <div
